@@ -55,8 +55,12 @@ The frontend code is saved in the `frontend` subdirectory.
 VUE_APP_UploadAPI=  <The UploadAPI value from step 5 of the backend installation>
 VUE_APP_WebSocketURL= <The WebSocketURL value from step 5 of the backend installation>
 ```
+3. Install the dependencies (once off)
+```
+npm install
+```
 
-3. Start the frontend
+4. Start the frontend
 ```bash
 npm run serve
 ```
