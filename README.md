@@ -41,9 +41,10 @@ sam deploy --guided
 ```
 
 4. Once deployed, take not of the following outputs from the SAM build command
--- UploadAPI: The API endpoint to upload images
--- WebSocketURL: The WebSocket endpoint
-
+```bash
+UploadAPI: The API endpoint to upload images
+WebSocketURL: The WebSocket endpoint
+```
 ## Frontend installation instructions
 
 The frontend code is saved in the `frontend` subdirectory. 
