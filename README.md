@@ -52,8 +52,8 @@ The frontend code is saved in the `frontend` subdirectory.
 1. Create a .env text file in the `frontend` subdirectory
 2. Add the following to the .env file
 ```bash
-VUE_APP_UploadAPI=  <The UploadAPI value from step 5 of the backend installation>
-VUE_APP_WebSocketURL= <The WebSocketURL value from step 5 of the backend installation>
+VUE_APP_UploadAPI=  <The UploadAPI value from step 4 of the backend installation>
+VUE_APP_WebSocketURL= <The WebSocketURL value from step 4 of the backend installation>
 ```
 3. Install the dependencies (once off)
 ```
