@@ -1,16 +1,12 @@
 
-# API Gateway Websocket examples: Returning asynchronous results to web clients
+# API Gateway Websocket example: Returning asynchronous results to web clients
 
 Web clients have numerous ways of checking on the progress of an asynchronous operation: polling, long polling and websockets.
 This example application shows how to setup Amazon API Gateway websockets to return the results of an asynchronous Amazon Textract operation.
 
-The demo also shows the following:
-1. Hosting a front-end in AWS Amplify Hosting
-2. Setting up a continuous deployment front-end pipeline in AWS Amplify
-3. Passing environment variables from the backend to AWS Amplify to the Vue front-end
-4. Setting it all up in AWS SAM
+![Application Architecture](Application_Architecture.png)
 
-** Running this application will incur costs. It uses services not in the AWS Free Tier and generates a large amount of data. **
+
 
 Important: this application uses various AWS services and there are costs associated with these services after the Free Tier usage - please see the [AWS Pricing page](https://aws.amazon.com/pricing/) for details. You are responsible for any AWS costs incurred. No warranty is implied in this example.
 
@@ -34,19 +30,19 @@ Important: this application uses various AWS services and there are costs associ
 1. Fork this repo
 
 3. Clone the repo onto your local development machine:
-```
+```bash
 git clone https://github.com/aws-samples/websocket-async-updates
 ```
 
 4. Deploy the backend application:
-```
+```bash
 sam build
 sam deploy --guided
 ```
 
 5. Once deployed, take not of the following outputs from the SAM build command
-- UploadAPI: The API endpoint to upload images
-- WebSocketURL: The WebSocket endpoint
+-- UploadAPI: The API endpoint to upload images
+-- WebSocketURL: The WebSocket endpoint
 
 ## Frontend installation instructions
 
@@ -54,13 +50,13 @@ The frontend code is saved in the `frontend` subdirectory.
 
 1. Create a .env text file in the `frontend` subdirectory
 2. Add the following to the .env file
-```javascript
+```bash
 VUE_APP_UploadAPI=  <The UploadAPI value from step 5 of the backend installation>
 VUE_APP_WebSocketURL= <The WebSocketURL value from step 5 of the backend installation>
 ```
 
 3. Start the frontend
-```
+```bash
 npm run serve
 ```
 
