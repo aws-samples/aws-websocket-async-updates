@@ -1,0 +1,561 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  websocket-demo
+
+Transform:
+- AWS::Serverless-2016-10-31
+
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Api:
+    # Allows any site to call these APIs (can restrict by replacing asterisk with site name)
+    # Automatically adds AllowMethods with a list of methods for this API
+    EndpointConfiguration: EDGE      
+    Cors:
+      AllowMethods: "'OPTIONS,GET'"
+      AllowHeaders: "'Content-Type'"
+      AllowOrigin: "'http://localhost:8080'" 
+  Function:
+    Runtime: nodejs14.x
+    MemorySize: 128
+    Timeout: 10
+
+Resources:
+############################################################################################################################################################################
+#   Amplify Hosting of Vue website. 
+#
+############################################################################################################################################################################
+  # WebSocketDemo:
+  #   Type: AWS::Amplify::App
+  #   Properties: 
+  #     Name: WebSocketDemo
+  #     Repository: https://gitlab.aws.dev/hamzaasi/websocket-async-updates
+  #     IAMServiceRole: !GetAtt AmplifyRole.Arn
+  #     BuildSpec: |
+  #       version: 0.1
+  #       frontend:
+  #         phases:
+  #           preBuild:
+  #             commands:
+  #               - npm ci
+  #           build:
+  #             commands:
+  #               - echo "VUE_APP_UploadAPI=${UploadAPI}" >> .env
+  #               - echo "VUE_APP_WebSocketURL=${WebSocketURL}" >> .env
+  #               - npm run build
+  #         artifacts:
+  #           baseDirectory: dist
+  #           files:
+  #             - '**/*'
+  #         cache:
+  #           paths:
+  #             - node_modules/**/*
+  
+  # WebSocketDemoMainBranch:
+  #   Type: AWS::Amplify::Branch
+  #   Properties:
+  #     AppId: !GetAtt WebSocketDemo.AppId
+  #     BranchName: main
+  #     EnableAutoBuild: true
+  #     EnvironmentVariables:
+  #        - Name: UploadAPI
+  #          Value:  !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Stage
+  #        - Name: WebSocketURL 
+  #          Value: !Sub wss://${ResultsWebSocket}.execute-api.${AWS::Region}.amazonaws.com/Stage 
+
+  #     BasicAuthConfig:
+  #       EnableBasicAuth: true
+  #       Username: !Sub "{{resolve:secretsmanager:${WebSocketDemoWebsiteCredentials}:SecretString:username}}"
+  #       Password: !Sub "{{resolve:secretsmanager:${WebSocketDemoWebsiteCredentials}:SecretString:password}}"
+
+  # WebSocketDemoWebsiteCredentials:
+  #   Type: AWS::SecretsManager::Secret
+  #   Properties: 
+  #     Description: "Website credentials"
+  #     Name: !Sub "${AWS::StackName}-website-credentials"
+  #     GenerateSecretString:
+  #       SecretStringTemplate: '{"username": "admin"}'
+  #       GenerateStringKey: 'password'
+  #       ExcludePunctuation: true
+
+  # AmplifyRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: 2012-10-17
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service:
+  #               - amplify.amazonaws.com
+  #           Action:
+  #             - sts:AssumeRole
+  #     Policies:
+  #       - PolicyName: Amplify
+  #         PolicyDocument:
+  #           Version: 2012-10-17
+  #           Statement:
+  #             - Effect: Allow
+  #               Action: "amplify:*"
+  #               Resource: "*"
+  #             - Effect: Allow
+  #               Action:
+  #                 - "codecommit:BatchGet*"
+  #                 - "codecommit:BatchDescribe*"
+  #                 - "codecommit:Get*"
+  #                 - "codecommit:Describe*"
+  #                 - "codecommit:List*"
+  #                 - "codecommit:GitPull"
+  #               Resource: '*'
+############################################################################################################################################################################
+#   S3 Bucket used for uploaded files
+#
+############################################################################################################################################################################
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-${AWS::Region}-fileupload"
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders:
+            - "*"
+          AllowedMethods:
+            - GET
+            - PUT
+            - POST
+            - DELETE
+            - HEAD
+          AllowedOrigins:
+            - "*"
+############################################################################################################################################################################
+#   Lambda function to request presigned URL for S3 bucket
+#   Event trigger is via API Gateway
+############################################################################################################################################################################
+  S3UploaderFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: src/s3Upload/
+      Handler: uploadDocument.handler
+      Environment:
+        Variables:
+          UploadBucket: !Ref S3Bucket
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref S3Bucket
+      Events:
+        HttpPost:
+          Type: Api
+          Properties:
+            Path: '/'
+            Method: get
+
+  S3UploaderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${S3UploaderFunction}
+      RetentionInDays: 7
+
+############################################################################################################################################################################
+#   SNS Topic used by the extract Text Lambda function
+#
+############################################################################################################################################################################
+
+  TextractSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: "Text"
+      TopicName: !Sub "AmazonTextract${AWS::StackName}"
+
+############################################################################################################################################################################
+#   SNS Role used by the extract Text Lambda function
+#
+############################################################################################################################################################################
+  TextractSNSRole:     
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - textract.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSNSFullAccess
+              
+ ############################################################################################################################################################################
+#   SQS Queue that subscribes to the Textract SNS Topic
+#
+############################################################################################################################################################################
+  TextractSQS:
+    Type: AWS::SQS::Queue
+
+  TextractSQSPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: 
+        - !Ref TextractSQS
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Principal: "*"
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+          Effect: Allow
+          Resource: !GetAtt TextractSQS.Arn
+          Condition:
+            ArnEquals:
+              aws:SourceArn: !Ref TextractSNSTopic
+         
+
+  TextTractSQSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      RawMessageDelivery: true
+      Endpoint: !GetAtt TextractSQS.Arn
+      TopicArn: !Ref TextractSNSTopic
+
+############################################################################################################################################################################
+#   Lambda Function triggered by an object created in the S3 bucket
+#   Starts the Textract
+############################################################################################################################################################################
+  ExtractTextFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      CodeUri: src/textract/analyze/
+      Handler: extractText.handler
+      Environment:
+        Variables:
+          SNS_TOPIC: !Ref TextractSNSTopic
+          SNS_ROLE: !GetAtt  TextractSNSRole.Arn
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub "${AWS::StackName}-${AWS::Region}-fileupload"
+        - SNSCrudPolicy:
+            TopicName: !Ref TextractSNSTopic
+        - TextractPolicy: {}
+      Events:
+        FileUpload:
+          Type: S3
+          Properties:
+            Bucket: 
+              Ref: S3Bucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: '.jpg' 
+
+  ExtractTextLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ExtractTextFunction}
+      RetentionInDays: 7
+
+############################################################################################################################################################################
+#   Lambda Function that processes the results of the Text recognition process
+#   
+############################################################################################################################################################################
+  ProcessResultsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/textract/process/
+      Handler: processResults.handler
+      Environment:
+        Variables:
+          WebSocketURL: !Sub ${ResultsWebSocket}.execute-api.${AWS::Region}.amazonaws.com/Stage
+          TABLE_NAME: !Ref WebSocketsTable
+      Policies:
+        - TextractPolicy: {}
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WebSocketsTable
+        - Statement:
+          - Effect: Allow
+            Action:
+            - 'execute-api:ManageConnections'
+            Resource:
+            - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ResultsWebSocket}/*'
+      Events:
+        TexttrectSQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TextractSQS.Arn
+            BatchSize: 10
+
+  ProcessResultsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProcessResultsFunction}
+      RetentionInDays: 7
+
+############################################################################################################################################################################
+#   CloudWatch Role for API logging in API Gateway
+#
+############################################################################################################################################################################
+  APIGatewayLoggingRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            Action: 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+        Path: /
+        ManagedPolicyArns:
+          - 'arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs'
+
+############################################################################################################################################################################
+#   API Gateway account setup - logging
+#
+############################################################################################################################################################################
+  # ApiCWLRoleArn:
+  #   Type: AWS::ApiGateway::Account
+  #   Properties: 
+  #     CloudWatchRoleArn: !GetAtt APIGatewayLoggingRole.Arn
+
+  # # CloudWatch Logs - Log Groups
+  # ApiAccessLogGroup:
+  #   Type: AWS::Logs::LogGroup  # 
+  #   DependsOn: ResultsWebSocket
+  #   Properties:
+  #     LogGroupName: !Sub /aws/apigateway/${ResultsWebSocket}
+  #     RetentionInDays: 7
+
+############################################################################################################################################################################
+#   Websocket
+#
+############################################################################################################################################################################
+  ResultsWebSocket:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: ResultWebSocket
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+  
+
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ResultsWebSocket
+      RouteKey: $connect
+      AuthorizationType: NONE
+      OperationName: ConnectRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref ConnectIntegration
+
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ResultsWebSocket
+      Description: Connect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnConnectFunction.Arn}/invocations
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ResultsWebSocket
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: DisconnectRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref DisconnectIntegration
+
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ResultsWebSocket
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnDisconnectFunction.Arn}/invocations
+
+  MonitorRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ResultsWebSocket
+      RouteKey: monitor
+      AuthorizationType: NONE
+      OperationName: MonitorRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref MonitorIntegration
+
+  MonitorIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ResultsWebSocket
+      Description: Monitor Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MonitorFunction.Arn}/invocations
+
+  Deployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+    - ConnectRoute
+    - MonitorRoute
+    - DisconnectRoute
+    Properties:
+      ApiId: !Ref ResultsWebSocket
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: Stage
+      Description: Staging
+      DeploymentId: !Ref Deployment
+      ApiId: !Ref ResultsWebSocket
+      # AccessLogSettings:
+      #   DestinationArn: !Sub ${ApiAccessLogGroup.Arn} #
+      #   Format: "{ 'requestId':'$context.requestId', 'ip': '$context.identity.sourceIp', 'caller':'$context.identity.caller', 'user':'$context.identity.user','requestTime':'$context.requestTime', 'xrayTraceId':'$context.xrayTraceId', 'wafResponseCode':'$context.wafResponseCode', 'httpMethod':'$context.httpMethod','resourcePath':'$context.resourcePath', 'status':'$context.status','protocol':'$context.protocol', 'responseLength':'$context.responseLength' }"         
+
+############################################################################################################################################################################
+#   DynamoDB Table that stores id's for the webockets 
+#
+############################################################################################################################################################################
+  WebSocketsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: "fileName"
+        AttributeType: "S"
+      KeySchema:
+      - AttributeName: "fileName"
+        KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      SSESpecification:
+        SSEEnabled: True
+############################################################################################################################################################################
+#   Lambda functions for websockets
+#
+############################################################################################################################################################################
+  OnConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/websocket/onconnect/
+      Handler: onconnection.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WebSocketsTable
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: !Ref WebSocketsTable
+
+  OnConnectLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OnConnectFunction}
+      RetentionInDays: 7
+
+  OnConnectPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - ResultsWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnConnectFunction
+      Principal: apigateway.amazonaws.com
+
+  OnDisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/websocket/ondisconnect/
+      Handler: ondisconnect.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WebSocketsTable
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: !Ref WebSocketsTable
+
+  OnDisconnectLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OnDisconnectFunction}
+      RetentionInDays: 7
+
+  OnDisconnectPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - ResultsWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnDisconnectFunction
+      Principal: apigateway.amazonaws.com
+
+  MonitorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/websocket/monitor/
+      Handler: monitor.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WebSocketsTable
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: !Ref WebSocketsTable
+      - Statement:
+        - Effect: Allow
+          Action:
+          - 'execute-api:ManageConnections'
+          Resource:
+          - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ResultsWebSocket}/*'
+
+  MonitorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${MonitorFunction}
+      RetentionInDays: 7
+
+  MonitorPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - ResultsWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MonitorFunction
+      Principal: apigateway.amazonaws.com
+
+############################################################################################################################################################################
+#   Outputs
+#
+############################################################################################################################################################################
+ 
+Outputs:
+  # WebSocketDemoURL:
+  #   Description: URL to view the Websocket Demo Application
+  #   Value: !Sub "https://${WebSocketDemoMainBranch.BranchName}.${WebSocketDemo.AppId}.amplifyapp.com/"
+  AmplifyDevWebsiteCredentials:
+    Description: AWS Secrets Manager Secret Name for website credentials
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/secretsmanager/home?region=${AWS::Region}#/secret?name=${AWS::StackName}-website-credentials"
+  S3Bucket:
+    Description: Upload bucket for documents
+    Value: !Ref S3Bucket
+  UploadAPI:
+    Description: API to upload documents
+    Value: !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Stage
+  WebSocketURL:
+    Description: WebSocket URL
+    Value: !Sub wss://${ResultsWebSocket}.execute-api.${AWS::Region}.amazonaws.com/Stage
+#  WebSocket URL: wss://n82x77iq7l.execute-api.us-east-2.amazonaws.com/Stage/
+#   Connection URL: https://n82x77iq7l.execute-api.us-east-2.amazonaws.com/Stage/@connections 
