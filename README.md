@@ -31,7 +31,7 @@ Important: this application uses various AWS services and there are costs associ
 
 2. Clone the repo onto your local development machine:
 ```bash
-git clone https://github.com/aws-samples/websocket-async-updates
+git clone https://github.com/aws-samples/aws-websocket-async-updates
 ```
 
 3. Deploy the backend application:
