@@ -29,18 +29,18 @@ Important: this application uses various AWS services and there are costs associ
 
 1. Fork this repo
 
-3. Clone the repo onto your local development machine:
+2. Clone the repo onto your local development machine:
 ```bash
 git clone https://github.com/aws-samples/websocket-async-updates
 ```
 
-4. Deploy the backend application:
+3. Deploy the backend application:
 ```bash
 sam build
 sam deploy --guided
 ```
 
-5. Once deployed, take not of the following outputs from the SAM build command
+4. Once deployed, take not of the following outputs from the SAM build command
 -- UploadAPI: The API endpoint to upload images
 -- WebSocketURL: The WebSocket endpoint
 
