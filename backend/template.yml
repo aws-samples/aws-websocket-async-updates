@@ -9,8 +9,6 @@ Transform:
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Api:
-    # Allows any site to call these APIs (can restrict by replacing asterisk with site name)
-    # Automatically adds AllowMethods with a list of methods for this API
     EndpointConfiguration: EDGE      
     Cors:
       AllowMethods: "'OPTIONS,GET'"
@@ -22,96 +20,6 @@ Globals:
     Timeout: 10
 
 Resources:
-############################################################################################################################################################################
-#   Amplify Hosting of Vue website. 
-#
-############################################################################################################################################################################
-  # WebSocketDemo:
-  #   Type: AWS::Amplify::App
-  #   Properties: 
-  #     Name: WebSocketDemo
-  #     Repository: https://gitlab.aws.dev/hamzaasi/websocket-async-updates
-  #     IAMServiceRole: !GetAtt AmplifyRole.Arn
-  #     BuildSpec: |
-  #       version: 0.1
-  #       frontend:
-  #         phases:
-  #           preBuild:
-  #             commands:
-  #               - npm ci
-  #           build:
-  #             commands:
-  #               - echo "VUE_APP_UploadAPI=${UploadAPI}" >> .env
-  #               - echo "VUE_APP_WebSocketURL=${WebSocketURL}" >> .env
-  #               - npm run build
-  #         artifacts:
-  #           baseDirectory: dist
-  #           files:
-  #             - '**/*'
-  #         cache:
-  #           paths:
-  #             - node_modules/**/*
-  
-  # WebSocketDemoMainBranch:
-  #   Type: AWS::Amplify::Branch
-  #   Properties:
-  #     AppId: !GetAtt WebSocketDemo.AppId
-  #     BranchName: main
-  #     EnableAutoBuild: true
-  #     EnvironmentVariables:
-  #        - Name: UploadAPI
-  #          Value:  !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Stage
-  #        - Name: WebSocketURL 
-  #          Value: !Sub wss://${ResultsWebSocket}.execute-api.${AWS::Region}.amazonaws.com/Stage 
-
-  #     BasicAuthConfig:
-  #       EnableBasicAuth: true
-  #       Username: !Sub "{{resolve:secretsmanager:${WebSocketDemoWebsiteCredentials}:SecretString:username}}"
-  #       Password: !Sub "{{resolve:secretsmanager:${WebSocketDemoWebsiteCredentials}:SecretString:password}}"
-
-  # WebSocketDemoWebsiteCredentials:
-  #   Type: AWS::SecretsManager::Secret
-  #   Properties: 
-  #     Description: "Website credentials"
-  #     Name: !Sub "${AWS::StackName}-website-credentials"
-  #     GenerateSecretString:
-  #       SecretStringTemplate: '{"username": "admin"}'
-  #       GenerateStringKey: 'password'
-  #       ExcludePunctuation: true
-
-  # AmplifyRole:
-  #   Type: AWS::IAM::Role
-  #   Properties:
-  #     AssumeRolePolicyDocument:
-  #       Version: 2012-10-17
-  #       Statement:
-  #         - Effect: Allow
-  #           Principal:
-  #             Service:
-  #               - amplify.amazonaws.com
-  #           Action:
-  #             - sts:AssumeRole
-  #     Policies:
-  #       - PolicyName: Amplify
-  #         PolicyDocument:
-  #           Version: 2012-10-17
-  #           Statement:
-  #             - Effect: Allow
-  #               Action: "amplify:*"
-  #               Resource: "*"
-  #             - Effect: Allow
-  #               Action:
-  #                 - "codecommit:BatchGet*"
-  #                 - "codecommit:BatchDescribe*"
-  #                 - "codecommit:Get*"
-  #                 - "codecommit:Describe*"
-  #                 - "codecommit:List*"
-  #                 - "codecommit:GitPull"
-  #               Resource: '*'
-############################################################################################################################################################################
-#   S3 Bucket used for uploaded files
-#
-############################################################################################################################################################################
   S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -313,23 +221,6 @@ Resources:
           - 'arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs'
 
 ############################################################################################################################################################################
-#   API Gateway account setup - logging
-#
-############################################################################################################################################################################
-  # ApiCWLRoleArn:
-  #   Type: AWS::ApiGateway::Account
-  #   Properties: 
-  #     CloudWatchRoleArn: !GetAtt APIGatewayLoggingRole.Arn
-
-  # # CloudWatch Logs - Log Groups
-  # ApiAccessLogGroup:
-  #   Type: AWS::Logs::LogGroup  # 
-  #   DependsOn: ResultsWebSocket
-  #   Properties:
-  #     LogGroupName: !Sub /aws/apigateway/${ResultsWebSocket}
-  #     RetentionInDays: 7
-
-############################################################################################################################################################################
 #   Websocket
 #
 ############################################################################################################################################################################
@@ -423,9 +314,6 @@ Resources:
       Description: Staging
       DeploymentId: !Ref Deployment
       ApiId: !Ref ResultsWebSocket
-      # AccessLogSettings:
-      #   DestinationArn: !Sub ${ApiAccessLogGroup.Arn} #
-      #   Format: "{ 'requestId':'$context.requestId', 'ip': '$context.identity.sourceIp', 'caller':'$context.identity.caller', 'user':'$context.identity.user','requestTime':'$context.requestTime', 'xrayTraceId':'$context.xrayTraceId', 'wafResponseCode':'$context.wafResponseCode', 'httpMethod':'$context.httpMethod','resourcePath':'$context.resourcePath', 'status':'$context.status','protocol':'$context.protocol', 'responseLength':'$context.responseLength' }"         
 
 ############################################################################################################################################################################
 #   DynamoDB Table that stores id's for the webockets 
@@ -542,9 +430,6 @@ Resources:
 ############################################################################################################################################################################
  
 Outputs:
-  # WebSocketDemoURL:
-  #   Description: URL to view the Websocket Demo Application
-  #   Value: !Sub "https://${WebSocketDemoMainBranch.BranchName}.${WebSocketDemo.AppId}.amplifyapp.com/"
   AmplifyDevWebsiteCredentials:
     Description: AWS Secrets Manager Secret Name for website credentials
     Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/secretsmanager/home?region=${AWS::Region}#/secret?name=${AWS::StackName}-website-credentials"
@@ -557,5 +442,3 @@ Outputs:
   WebSocketURL:
     Description: WebSocket URL
     Value: !Sub wss://${ResultsWebSocket}.execute-api.${AWS::Region}.amazonaws.com/Stage
-#  WebSocket URL: wss://n82x77iq7l.execute-api.us-east-2.amazonaws.com/Stage/
-#   Connection URL: https://n82x77iq7l.execute-api.us-east-2.amazonaws.com/Stage/@connections 
